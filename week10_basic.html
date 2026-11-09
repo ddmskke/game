@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Flappy Bird</title>
+
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial;
+        }
+
+        canvas {
+            border: 2px solid black;
+            background: skyblue;
+        }
+
+        select {
+            padding: 5px;
+            font-size: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Flappy Bird</h1>
+
+    <p>
+        점수: <span id="score">0</span>
+        | 최고 기록: <span id="highscore">0</span>
+    </p>
+
+    <p>
+        난이도:
+        <select id="difficulty" onchange="changeDifficulty()">
+            <option value="easy">하</option>
+            <option value="normal" selected>중</option>
+            <option value="hard">상</option>
+        </select>
+    </p>
+
+    <p>
+        조작: Space 키 또는 마우스 클릭
+
+        <button id="restartBtn"
+                onclick="restart(); this.blur();">
+            다시 시작
+        </button>
+    </p>
+
+    <canvas id="gameCanvas" width="400" height="500"></canvas>
+
+</body>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const scoreElement = document.getElementById('score');
+    const highScoreElement = document.getElementById("highscore");
+
+    let score = 0;
+    let gameOver = false;
+
+    const bird = {
+        x: 80,
+        y: 250,
+        radius: 15,
+        velocity: 0,
+        gravity: 0.3,
+        jumpPower: -8
+    };
+
+
+    const difficultySettings = {
+        easy: {
+            pipeSpeed: 2,
+            pipeGap: 180,
+            gravity: 0.25,
+            jumpPower: -7
+        },
+
+        normal: {
+            pipeSpeed: 3,
+            pipeGap: 140,
+            gravity: 0.3,
+            jumpPower: -8
+        },
+
+        hard: {
+            pipeSpeed: 4,
+            pipeGap: 110,
+            gravity: 0.4,
+            jumpPower: -9
+        }
+    };
+
+    let basePipeSpeed = 3;
+    let pipeSpeed = 3;
+    let pipeGap = 140;
+
+
+    function changeDifficulty() {
+        const difficulty =
+            document.getElementById("difficulty").value;
+
+        const settings = difficultySettings[difficulty];
+
+        basePipeSpeed = settings.pipeSpeed;
+        pipeGap = settings.pipeGap;
+
+        bird.gravity = settings.gravity;
+        bird.jumpPower = settings.jumpPower;
+
+        updateSpeed();
+    }
+
+
+    function updateSpeed() {
+        pipeSpeed = basePipeSpeed + score * 0.15;
+    }
+
+    function drawBird() {
+        ctx.beginPath();
+
+        ctx.arc(
+            bird.x,
+            bird.y,
+            bird.radius,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fillStyle = "yellow";
+        ctx.fill();
+
+        ctx.fillStyle = "black";
+
+        ctx.beginPath();
+
+        ctx.arc(
+            bird.x + 5,
+            bird.y - 5,
+            3,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+    }
+
+    function moveBird() {
+        bird.velocity += bird.gravity;
+        bird.y += bird.velocity;
+
+        if (
+            bird.y - bird.radius < 0 ||
+            bird.y + bird.radius > canvas.height
+        ) {
+            endGame();
+        }
+    }
+
+    function jump() {
+        if (gameOver) return;
+
+        if (countDown > 0) return;
+
+        bird.velocity = bird.jumpPower;
+    }
+
+    document.addEventListener("keydown", function (event) {
+        if (event.code === "Space") {
+            event.preventDefault();
+            jump();
+        }
+    });
+
+    canvas.addEventListener("click", jump);
+
+    function restart() {
+        if (!gameOver) return;
+
+        bird.y = 250;
+        bird.velocity = 0;
+
+        pipes.length = 0;
+
+        score = 0;
+
+        scoreElement.textContent = 0;
+
+        updateSpeed();
+
+        gameOver = false;
+
+        startCountdown();
+
+        gameLoop();
+    }
+
+    let countDown = 3;
+
+    function startCountdown() {
+        countDown = 3;
+
+        const timer = setInterval(function () {
+            countDown--;
+
+            if (countDown <= 0) {
+                clearInterval(timer);
+            }
+
+        }, 1000);
+    }
+
+    const pipes = [];
+
+    const pipeWidth = 60;
+
+    function createPipe() {
+        if (gameOver || countDown > 0) return;
+
+        const topHeight =
+            Math.random() * (canvas.height - pipeGap - 100) + 50;
+
+        pipes.push({
+            x: canvas.width,
+            topHeight: topHeight,
+            bottomY: topHeight + pipeGap,
+            passed: false
+        });
+    }
+
+    function drawPipes() {
+        ctx.fillStyle = "green";
+
+        for (let pipe of pipes) {
+
+            ctx.fillRect(
+                pipe.x,
+                0,
+                pipeWidth,
+                pipe.topHeight
+            );
+
+            ctx.fillRect(
+                pipe.x,
+                pipe.bottomY,
+                pipeWidth,
+                canvas.height - pipe.bottomY
+            );
+
+        }
+    }
+
+    function movePipes() {
+
+        for (let pipe of pipes) {
+
+            pipe.x -= pipeSpeed;
+
+            if (
+                !pipe.passed &&
+                pipe.x + pipeWidth < bird.x
+            ) {
+                score++;
+
+                scoreElement.textContent = score;
+
+                pipe.passed = true;
+
+
+                updateSpeed();
+
+                updateHighScore();
+            }
+        }
+
+        for (let i = pipes.length - 1; i >= 0; i--) {
+
+            if (pipes[i].x + pipeWidth < 0) {
+                pipes.splice(i, 1);
+            }
+
+        }
+    }
+
+    function checkCollision() {
+
+        for (let pipe of pipes) {
+
+            const birdLeft = bird.x - bird.radius;
+            const birdRight = bird.x + bird.radius;
+
+            const birdTop = bird.y - bird.radius;
+            const birdBottom = bird.y + bird.radius;
+
+            const pipeLeft = pipe.x;
+            const pipeRight = pipe.x + pipeWidth;
+
+            const hitTopPipe =
+                birdRight > pipeLeft &&
+                birdLeft < pipeRight &&
+                birdTop < pipe.topHeight;
+
+            const hitBottomPipe =
+                birdRight > pipeLeft &&
+                birdLeft < pipeRight &&
+                birdBottom > pipe.bottomY;
+
+            if (hitTopPipe || hitBottomPipe) {
+                endGame();
+                return;
+            }
+        }
+    }
+
+    function endGame() {
+        if (gameOver) return;
+
+        gameOver = true;
+
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+
+        ctx.fillRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+        ctx.font = "32px Arial";
+
+        ctx.fillStyle = "White";
+
+        ctx.textAlign = "center";
+
+        ctx.fillText(
+            "게임 오버",
+            canvas.width / 2,
+            canvas.height / 2 - 30
+        );
+
+        ctx.fillText(
+            "점수: " + score,
+            canvas.width / 2,
+            canvas.height / 2 + 20
+        );
+    }
+
+
+    let highScore =
+        Number(localStorage.getItem("flappyHighScore")) || 0;
+
+    highScoreElement.textContent = highScore;
+
+    function updateHighScore() {
+
+        if (score > highScore) {
+
+            highScore = score;
+
+            highScoreElement.textContent = highScore;
+
+            localStorage.setItem(
+                "flappyHighScore",
+                highScore
+            );
+        }
+    }
+
+    function gameLoop() {
+
+        if (gameOver) return;
+
+        ctx.clearRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+        if (countDown > 0) {
+
+            drawBird();
+
+            ctx.font = "80px Arial";
+
+            ctx.fillStyle = "white";
+
+            ctx.textAlign = "center";
+
+            ctx.fillText(
+                countDown,
+                canvas.width / 2,
+                canvas.height / 2
+            );
+
+            requestAnimationFrame(gameLoop);
+
+            return;
+        }
+
+        moveBird();
+
+        movePipes();
+
+        checkCollision();
+
+        if (gameOver) return;
+
+        drawBird();
+
+        drawPipes();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    setInterval(createPipe, 1500);
+
+    changeDifficulty();
+
+    startCountdown();
+
+    gameLoop();
+
+</script>
+
+</html>
