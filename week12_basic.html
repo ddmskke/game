@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RPG 보석 찾기</title>
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial, sans-serif;
+            background: #eee;
+        }
+
+        canvas {
+            border: 2px solid black;
+            max-width: 100%;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>RPG 모험의 세계</h1>
+    <p>방향키: 이동 / Space: NPC 대화 / J: 공격 / H: 물약 사용 / R: 재시작</p>
+    <canvas id="gameCanvas" width="640" height="480"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const tileSize = 40;
+
+        const map = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1],
+            [1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 1, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 2, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        const player = {
+            x: 80,
+            y: 80,
+            width: 28,
+            height: 28,
+            speed: 3,
+            hp: 100,
+            maxHp: 100,
+            potions: 2
+        };
+
+        const npcs = [
+            {
+                x: 480,
+                y: 280,
+                color: "purple",
+                name: "보석 수집가",
+                quest: 0
+            },
+            {
+                x: 80,
+                y: 320,
+                color: "blue",
+                name: "약초 상인",
+                quest: 1
+            },
+            {
+                x: 520,
+                y: 80,
+                color: "orange",
+                name: "모험가",
+                quest: 2
+            }
+        ];
+
+        const gems = [
+            { x: 140, y: 300, taken: false },
+            { x: 340, y: 180, taken: false },
+            { x: 580, y: 60, taken: false }
+        ];
+
+        const potions = [
+            { x: 220, y: 260, taken: false },
+            { x: 440, y: 340, taken: false },
+            { x: 560, y: 200, taken: false }
+        ];
+
+        const monsters = [
+            { x: 200, y: 200, hp: 3, speed: 0.8, alive: true },
+            { x: 440, y: 240, hp: 3, speed: 0.7, alive: true },
+            { x: 320, y: 320, hp: 3, speed: 0.6, alive: true }
+        ];
+
+        const keys = {};
+
+        let questStarted = [false, false, false];
+        let questCompleted = [false, false, false];
+        let gemCount = 0;
+        let monsterCount = 0;
+        let showDialog = false;
+        let gameClear = false;
+        let message = "NPC를 만나 퀘스트를 시작하세요!";
+        let dialogText = "";
+        let damageCooldown = 0;
+        let attackCooldown = 0;
+        let selectedNPC = -1;
+
+        function drawMap() {
+            for (let row = 0; row < map.length; row++) {
+                for (let col = 0; col < map[row].length; col++) {
+                    const tile = map[row][col];
+
+                    ctx.fillStyle = tile === 1 ? "#5a3a1a" :
+                        tile === 2 ? "#3498db" : "#7ac943";
+
+                    ctx.fillRect(col * tileSize, row * tileSize, tileSize, tileSize);
+                    ctx.strokeStyle = "#777";
+                    ctx.strokeRect(col * tileSize, row * tileSize, tileSize, tileSize);
+                }
+            }
+        }
+
+        function drawPlayer() {
+            ctx.fillStyle = "red";
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+
+            ctx.fillStyle = "white";
+            ctx.fillRect(player.x + 6, player.y + 8, 5, 5);
+            ctx.fillRect(player.x + 17, player.y + 8, 5, 5);
+        }
+
+        function drawNPCs() {
+            npcs.forEach((npc, index) => {
+                ctx.fillStyle = npc.color;
+                ctx.fillRect(npc.x, npc.y, 32, 32);
+
+                ctx.fillStyle = "white";
+                ctx.fillRect(npc.x + 7, npc.y + 8, 5, 5);
+                ctx.fillRect(npc.x + 20, npc.y + 8, 5, 5);
+
+                ctx.fillStyle = "black";
+                ctx.font = "12px Arial";
+                ctx.fillText(npc.name, npc.x - 15, npc.y - 8);
+
+                if (isNearNPC(npc)) {
+                    ctx.fillText("Space", npc.x - 5, npc.y - 20);
+                }
+
+                if (questCompleted[index]) {
+                    ctx.fillStyle = "gold";
+                    ctx.fillText("완료!", npc.x + 2, npc.y + 48);
+                }
+            });
+        }
+
+        function drawGems() {
+            gems.forEach(gem => {
+                if (gem.taken) return;
+
+                ctx.fillStyle = "gold";
+                ctx.beginPath();
+                ctx.moveTo(gem.x, gem.y - 12);
+                ctx.lineTo(gem.x + 12, gem.y);
+                ctx.lineTo(gem.x, gem.y + 12);
+                ctx.lineTo(gem.x - 12, gem.y);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.strokeStyle = "#b8860b";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+        }
+
+        function drawPotions() {
+            potions.forEach(potion => {
+                if (potion.taken) return;
+
+                ctx.fillStyle = "#ff55aa";
+                ctx.fillRect(potion.x - 9, potion.y - 10, 18, 20);
+                ctx.fillStyle = "white";
+                ctx.fillRect(potion.x - 5, potion.y - 5, 10, 10);
+            });
+        }
+
+        function drawMonsters() {
+            monsters.forEach(monster => {
+                if (!monster.alive) return;
+
+                ctx.fillStyle = "#333";
+                ctx.beginPath();
+                ctx.arc(monster.x + 15, monster.y + 15, 16, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = "red";
+                ctx.fillRect(monster.x + 6, monster.y + 9, 5, 5);
+                ctx.fillRect(monster.x + 20, monster.y + 9, 5, 5);
+
+                ctx.fillStyle = "white";
+                ctx.fillRect(monster.x + 5, monster.y - 8, 24, 4);
+
+                ctx.fillStyle = "lime";
+                ctx.fillRect(monster.x + 5, monster.y - 8, 24 * monster.hp / 3, 4);
+            });
+        }
+
+        function drawInfo() {
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 400, 640, 80);
+
+            ctx.fillStyle = "black";
+            ctx.font = "15px Arial";
+            ctx.fillText("체력: " + player.hp + "/" + player.maxHp, 15, 422);
+
+            ctx.fillStyle = "#ddd";
+            ctx.fillRect(150, 408, 120, 15);
+
+            ctx.fillStyle = "red";
+            ctx.fillRect(150, 408, 120 * player.hp / player.maxHp, 15);
+
+            ctx.fillStyle = "black";
+            ctx.fillText("물약: " + player.potions + "개 (H)", 300, 422);
+            ctx.fillText("보석: " + gemCount + "/3", 15, 450);
+            ctx.fillText("몬스터: " + monsterCount + "/3", 150, 450);
+
+            const completed = questCompleted.filter(Boolean).length;
+            ctx.fillText("퀘스트: " + completed + "/3", 330, 450);
+
+            ctx.font = "13px Arial";
+            ctx.fillText(message, 15, 475);
+        }
+
+        function isWall(x, y, width = player.width, height = player.height) {
+            const left = Math.floor(x / tileSize);
+            const right = Math.floor((x + width - 1) / tileSize);
+            const top = Math.floor(y / tileSize);
+            const bottom = Math.floor((y + height - 1) / tileSize);
+
+            if (left < 0 || right >= 16 || top < 0 || bottom >= 10) {
+                return true;
+            }
+
+            return map[top][left] === 1 ||
+                map[top][right] === 1 ||
+                map[bottom][left] === 1 ||
+                map[bottom][right] === 1;
+        }
+
+        function distance(x1, y1, x2, y2) {
+            return Math.hypot(x1 - x2, y1 - y2);
+        }
+
+        function isNearNPC(npc) {
+            return distance(
+                player.x + player.width / 2,
+                player.y + player.height / 2,
+                npc.x + 16,
+                npc.y + 16
+            ) < 60;
+        }
+
+        function collectItems() {
+            gems.forEach(gem => {
+                if (!gem.taken && questStarted[0] &&
+                    player.x < gem.x + 15 &&
+                    player.x + player.width > gem.x - 15 &&
+                    player.y < gem.y + 15 &&
+                    player.y + player.height > gem.y - 15) {
+
+                    gem.taken = true;
+                    gemCount++;
+                    message = "보석을 획득했습니다! " + gemCount + "/3";
+                }
+            });
+
+            potions.forEach(potion => {
+                if (!potion.taken &&
+                    distance(
+                        player.x + player.width / 2,
+                        player.y + player.height / 2,
+                        potion.x,
+                        potion.y
+                    ) < 25) {
+
+                    potion.taken = true;
+                    player.potions++;
+                    message = "회복 물약을 획득했습니다!";
+                }
+            });
+        }
+
+        function movePlayer() {
+            if (showDialog || gameClear || player.hp <= 0) return;
+
+            let nextX = player.x;
+            let nextY = player.y;
+
+            if (keys["ArrowLeft"]) nextX -= player.speed;
+            if (keys["ArrowRight"]) nextX += player.speed;
+            if (keys["ArrowUp"]) nextY -= player.speed;
+            if (keys["ArrowDown"]) nextY += player.speed;
+
+            if (!isWall(nextX, player.y)) player.x = nextX;
+            if (!isWall(player.x, nextY)) player.y = nextY;
+
+            collectItems();
+        }
+
+        function moveMonsters() {
+            monsters.forEach(monster => {
+                if (!monster.alive) return;
+
+                const dx = player.x - monster.x;
+                const dy = player.y - monster.y;
+                const dist = Math.hypot(dx, dy);
+
+                if (dist < 190 && dist > 1) {
+                    const nextX = monster.x + dx / dist * monster.speed;
+                    const nextY = monster.y + dy / dist * monster.speed;
+
+                    if (!isWall(nextX, monster.y, 30, 30)) {
+                        monster.x = nextX;
+                    }
+
+                    if (!isWall(monster.x, nextY, 30, 30)) {
+                        monster.y = nextY;
+                    }
+                }
+
+                if (distance(player.x + 14, player.y + 14, monster.x + 15, monster.y + 15) < 27) {
+                    if (damageCooldown <= 0) {
+                        player.hp = Math.max(0, player.hp - 10);
+                        damageCooldown = 60;
+                        message = "몬스터와 부딪혔습니다! 체력이 감소했습니다!";
+                    }
+                }
+            });
+
+            if (damageCooldown > 0) damageCooldown--;
+        }
+
+        function attackMonsters() {
+            if (attackCooldown > 0) return;
+
+            let target = null;
+            let minDistance = 65;
+
+            monsters.forEach(monster => {
+                if (!monster.alive) return;
+
+                const d = distance(
+                    player.x + 14,
+                    player.y + 14,
+                    monster.x + 15,
+                    monster.y + 15
+                );
+
+                if (d < minDistance) {
+                    minDistance = d;
+                    target = monster;
+                }
+            });
+
+            if (target) {
+                target.hp--;
+                attackCooldown = 25;
+                message = "몬스터를 공격했습니다!";
+
+                if (target.hp <= 0) {
+                    target.alive = false;
+                    monsterCount++;
+                    message = "몬스터를 처치했습니다! (" + monsterCount + "/3)";
+                }
+            }
+        }
+
+        function usePotion() {
+            if (player.potions <= 0) {
+                message = "사용할 물약이 없습니다!";
+                return;
+            }
+
+            if (player.hp >= player.maxHp) {
+                message = "체력이 이미 가득 찼습니다!";
+                return;
+            }
+
+            player.potions--;
+            player.hp = Math.min(player.maxHp, player.hp + 40);
+            message = "회복 물약을 사용했습니다! 체력 +40";
+        }
+
+        function talkToNPC() {
+            if (showDialog) {
+                showDialog = false;
+                return;
+            }
+
+            if (gameClear || player.hp <= 0) return;
+
+            selectedNPC = npcs.findIndex(npc => isNearNPC(npc));
+
+            if (selectedNPC === -1) return;
+
+            const index = selectedNPC;
+
+            if (questCompleted[index]) {
+                dialogText = "이미 완료한 퀘스트입니다!";
+            } else if (!questStarted[index]) {
+                questStarted[index] = true;
+
+                if (index === 0) {
+                    dialogText = "보석 3개를 찾아와 주세요!";
+                    collectItems();
+                } else if (index === 1) {
+                    dialogText = "몬스터 3마리를 처치해 주세요!";
+                } else {
+                    dialogText = "회복 물약 3개를 모아 주세요!";
+                }
+            } else {
+                let completed = false;
+
+                if (index === 0 && gemCount >= 3) completed = true;
+                if (index === 1 && monsterCount >= 3) completed = true;
+                if (index === 2 && player.potions >= 3) completed = true;
+
+                if (completed) {
+                    questCompleted[index] = true;
+                    dialogText = "퀘스트 완료! 고마워요!";
+
+                    if (questCompleted.every(Boolean)) {
+                        gameClear = true;
+                    }
+                } else {
+                    if (index === 0) {
+                        dialogText = "보석이 " + (3 - gemCount) + "개 남았습니다!";
+                    } else if (index === 1) {
+                        dialogText = "몬스터가 " + (3 - monsterCount) + "마리 남았습니다!";
+                    } else {
+                        dialogText = "물약이 " + Math.max(0, 3 - player.potions) + "개 더 필요합니다!";
+                    }
+                }
+            }
+
+            showDialog = true;
+        }
+
+        function drawDialog() {
+            if (!showDialog) return;
+
+            ctx.fillStyle = "black";
+            ctx.fillRect(40, 325, 560, 100);
+
+            ctx.fillStyle = "white";
+            ctx.font = "18px Arial";
+            ctx.fillText(npcs[selectedNPC].name + ": " + dialogText, 60, 365);
+            ctx.fillText("Space: 닫기", 60, 400);
+        }
+
+        function drawGameOver() {
+            if (player.hp > 0) return;
+
+            ctx.fillStyle = "rgba(0,0,0,0.8)";
+            ctx.fillRect(0, 0, 640, 400);
+
+            ctx.fillStyle = "white";
+            ctx.textAlign = "center";
+            ctx.font = "36px Arial";
+            ctx.fillText("GAME OVER", 320, 180);
+
+            ctx.font = "20px Arial";
+            ctx.fillText("R 키를 눌러 다시 시작하세요!", 320, 230);
+            ctx.textAlign = "left";
+        }
+
+        function drawClear() {
+            if (!gameClear) return;
+
+            ctx.fillStyle = "white";
+            ctx.fillRect(70, 120, 500, 190);
+
+            ctx.strokeStyle = "gold";
+            ctx.lineWidth = 4;
+            ctx.strokeRect(70, 120, 500, 190);
+
+            ctx.fillStyle = "black";
+            ctx.textAlign = "center";
+            ctx.font = "34px Arial";
+            ctx.fillText("게임 클리어!", 320, 185);
+
+            ctx.font = "19px Arial";
+            ctx.fillText("모든 퀘스트를 완료했습니다!", 320, 230);
+            ctx.fillText("R 키: 다시 시작", 320, 270);
+            ctx.textAlign = "left";
+        }
+
+        function resetGame() {
+            location.reload();
+        }
+
+        document.addEventListener("keydown", event => {
+            keys[event.key] = true;
+
+            if (event.key.startsWith("Arrow") || event.code === "Space") {
+                event.preventDefault();
+            }
+
+            if (event.repeat) return;
+
+            if (event.key.toLowerCase() === "r") {
+                resetGame();
+            }
+
+            if (event.code === "Space") {
+                talkToNPC();
+            }
+
+            if (event.key.toLowerCase() === "h") {
+                if (!showDialog && !gameClear && player.hp > 0) {
+                    usePotion();
+                }
+            }
+
+            if (event.key.toLowerCase() === "j") {
+                if (!showDialog && !gameClear && player.hp > 0) {
+                    attackMonsters();
+                }
+            }
+        });
+
+        document.addEventListener("keyup", event => {
+            keys[event.key] = false;
+        });
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            movePlayer();
+
+            if (!gameClear && player.hp > 0 && !showDialog) {
+                moveMonsters();
+            }
+
+            if (attackCooldown > 0) attackCooldown--;
+
+            drawMap();
+            drawGems();
+            drawPotions();
+            drawNPCs();
+            drawMonsters();
+            drawPlayer();
+            drawInfo();
+            drawDialog();
+            drawGameOver();
+            drawClear();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
+
